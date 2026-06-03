@@ -4,6 +4,8 @@ Web app for simple, filtered exploration of the **Copernicus Data Space Ecosyste
 STAC catalog** (ESA data: Sentinel-1/2/3/5P/6, Copernicus Contributing Missions,
 CLMS, ...).
 
+![MapExplorer preview](docs/preview.png)
+
 ## Features
 
 - **Advanced search with filters**: date range, geographic area (bbox),
