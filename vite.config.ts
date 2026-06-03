@@ -6,7 +6,11 @@ import tailwindcss from '@tailwindcss/vite'
 // In development we use a proxy to the Copernicus Data Space STAC API to avoid
 // possible CORS issues. Requests to "/stac/*" are forwarded to
 // https://stac.dataspace.copernicus.eu/* (see src/config.ts).
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  // GitHub Pages serves this project at https://<user>.github.io/map-explorer/,
+  // so production asset URLs need the repo name as a base path. The dev server
+  // and tests stay at the root.
+  base: command === 'build' ? '/map-explorer/' : '/',
   plugins: [react(), tailwindcss()],
   test: {
     environment: 'jsdom',
@@ -33,4 +37,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))
