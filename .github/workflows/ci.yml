@@ -2,10 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [main, develop]
   pull_request:
 
-# Least privilege by default; the deploy job widens this for itself.
+# Correctness gate only — deployment lives in release.yml (manual dispatch).
 permissions:
   contents: read
 
@@ -37,37 +37,3 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
-
-  # Build the production bundle once and upload it as a Pages artifact.
-  build-pages:
-    name: Build Pages artifact
-    needs: test
-    if: github.ref == 'refs/heads/master'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: build-pages
-    if: github.ref == 'refs/heads/master'
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
