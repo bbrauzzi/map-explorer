@@ -1,0 +1,119 @@
+name: Release
+
+# Manual "ship it" signal. CI (ci.yml) stays the per-PR/per-push correctness gate;
+# this workflow is triggered by hand from the Actions tab when you want to release.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to release, e.g. v0.2.0. Leave blank to deploy without tagging.'
+        required: false
+        type: string
+
+# Least privilege by default; each job widens only what it needs.
+permissions:
+  contents: read
+
+# Never cancel an in-flight release.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # Re-run the full gate (a manual dispatch can target any ref, not just a CI'd commit),
+  # then build and upload the Pages artifact.
+  build:
+    name: Build & verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  # Only when a version was supplied: tag the released commit and cut a GitHub Release.
+  tag-and-release:
+    name: Tag & GitHub Release
+    needs: deploy
+    if: ${{ inputs.version != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ inputs.version }}" \
+            --target "${{ github.sha }}" \
+            --title "${{ inputs.version }}" \
+            --generate-notes
+
+  # Promote the released state to the production branch (main) via a PR — a human merges
+  # it. Keeps branch protection/review intact rather than pushing from CI. Skips cleanly
+  # when main is already up to date or a release PR is already open.
+  release-pr:
+    name: Open release PR (develop -> main)
+    needs: deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Open release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          ahead=$(gh api "repos/$REPO/compare/main...develop" --jq '.ahead_by')
+          if [ "$ahead" -eq 0 ]; then
+            echo "main is already up to date with develop — no release PR needed."
+            exit 0
+          fi
+
+          existing=$(gh pr list --repo "$REPO" --base main --head develop --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            echo "Release PR already open: #$existing"
+            exit 0
+          fi
+
+          if [ -n "$VERSION" ]; then
+            title="Release $VERSION: develop -> main"
+          else
+            title="Release: develop -> main"
+          fi
+          gh pr create --repo "$REPO" \
+            --base main --head develop \
+            --title "$title" \
+            --body "Automated release PR promoting \`develop\` to \`main\`. Deployed commit: ${{ github.sha }}."
