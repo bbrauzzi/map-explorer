@@ -1,7 +1,7 @@
 {
   "name": "map-explorer",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "description": "Portale di ricerca per dati ESA via STAC (Copernicus Data Space)",
   "scripts": {
