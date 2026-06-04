@@ -1,8 +1,17 @@
 # MapExplorer — ESA data search portal via STAC
 
+[![CI](https://github.com/bbrauzzi/map-explorer/actions/workflows/ci.yml/badge.svg)](https://github.com/bbrauzzi/map-explorer/actions/workflows/ci.yml)
+[![Live demo](https://img.shields.io/badge/demo-GitHub%20Pages-2ea44f)](https://bbrauzzi.github.io/map-explorer/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![React](https://img.shields.io/badge/React-18-61dafb?logo=react&logoColor=white)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Vite](https://img.shields.io/badge/Vite-5-646cff?logo=vite&logoColor=white)](https://vite.dev)
+
 Web app for simple, filtered exploration of the **Copernicus Data Space Ecosystem
 STAC catalog** (ESA data: Sentinel-1/2/3/5P/6, Copernicus Contributing Missions,
 CLMS, ...).
+
+**🌍 Live demo:** <https://bbrauzzi.github.io/map-explorer/>
 
 ![MapExplorer preview](docs/preview.png)
 
@@ -37,12 +46,20 @@ authentication (out of scope for this portal).
 
 ### Note on CORS
 
-In **development**, requests go through a Vite proxy (`/stac` → real endpoint),
-configured in `vite.config.ts`, to avoid CORS issues.
+In **development**, requests go through Vite proxies (`/stac` → STAC API, `/thumb` →
+quicklook host), configured in `vite.config.ts`, so everything loads same-origin.
 
-In **production**, the app calls the absolute endpoint directly (see `src/config.ts`).
-If the API does not send CORS headers, you will need a small reverse proxy in front
-(e.g. the same rule from `vite.config.ts` on Nginx/Cloudflare Worker).
+In **production** (e.g. GitHub Pages) no proxy is needed for data: the STAC API at
+`https://stac.dataspace.copernicus.eu/v1` sends `Access-Control-Allow-Origin: *`, so the
+app calls the absolute endpoint directly (see `src/config.ts`).
+
+The one catch is **quicklook thumbnails**: their hrefs point at `datahub.creodias.eu`,
+which 301-redirects to the same path on `zipper.creodias.eu`. Only the final response
+carries CORS headers — the redirect itself does not — so a cross-origin WebGL texture
+fetch is blocked on the redirect hop. In prod the app rewrites the host straight to
+`zipper.creodias.eu` to skip the redirect (`thumbForMap` in `src/components/MapView.tsx`).
+If CreoDIAS ever changes that mapping or gates `zipper` behind auth, fall back to a small
+reverse proxy (e.g. the `/thumb` rule from `vite.config.ts` on Nginx/Cloudflare Worker).
 
 ## Structure
 
@@ -56,3 +73,7 @@ src/
   components/            # FilterPanel, MapView, ResultList, ItemDetail, SavedSearchesPanel
   App.tsx                # 3-zone layout and shared state
 ```
+
+## License
+
+Released under the [MIT License](LICENSE).

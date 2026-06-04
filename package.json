@@ -4,6 +4,12 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Portale di ricerca per dati ESA via STAC (Copernicus Data Space)",
+  "license": "MIT",
+  "homepage": "https://bbrauzzi.github.io/map-explorer/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bbrauzzi/map-explorer.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
