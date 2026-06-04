@@ -331,11 +331,11 @@ describe('MapView quicklook overlays', () => {
     )
   })
 
-  it('loads creodias quicklook URLs directly in prod', () => {
+  it('rewrites datahub quicklook URLs to zipper in prod (skips the CORS-less redirect)', () => {
     vi.stubEnv('DEV', false)
     renderMapView({ selectedIds: new Set(['S2_A']) })
     expect(screen.getByTestId('source-quicklook-S2_A').getAttribute('data-url')).toBe(
-      'https://datahub.creodias.eu/odata/v1/preview.png',
+      'https://zipper.creodias.eu/odata/v1/preview.png',
     )
   })
 })

@@ -86,39 +86,32 @@ jobs:
             --title "$VER" \
             --generate-notes
 
-  # Promote the released state to the production branch (main) via a PR — a human merges
-  # it. Keeps branch protection/review intact rather than pushing from CI. Skips cleanly
-  # when main is already up to date or a release PR is already open.
-  release-pr:
-    name: Open release PR (develop -> main)
+  # Promote the released state to production by merging develop into main directly.
+  # Uses the merges API: idempotent (204 when main is already up to date), 409 on conflict.
+  merge-to-main:
+    name: Merge develop -> main
     needs: deploy
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      pull-requests: write
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Open release PR
+      - name: Merge develop into main
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           VERSION="v$(node -p "require('./package.json').version")"
 
-          ahead=$(gh api "repos/$REPO/compare/main...develop" --jq '.ahead_by')
-          if [ "$ahead" -eq 0 ]; then
-            echo "main is already up to date with develop — no release PR needed."
-            exit 0
-          fi
+          status=$(gh api -X POST "repos/$REPO/merges" \
+            -f base=main \
+            -f head=develop \
+            -f commit_message="Release $VERSION: merge develop into main" \
+            --include 2>&1 | grep -m1 '^HTTP/' | awk '{print $2}') || true
 
-          existing=$(gh pr list --repo "$REPO" --base main --head develop --state open --json number --jq '.[0].number // empty')
-          if [ -n "$existing" ]; then
-            echo "Release PR already open: #$existing"
-            exit 0
-          fi
-
-          title="Release $VERSION: develop -> main"
-          gh pr create --repo "$REPO" \
-            --base main --head develop \
-            --title "$title" \
-            --body "Automated release PR promoting \`develop\` to \`main\`. Deployed commit: ${{ github.sha }}."
+          case "$status" in
+            201) echo "Merged develop into main." ;;
+            204) echo "main is already up to date with develop — nothing to merge." ;;
+            409) echo "Merge conflict between develop and main — resolve manually." >&2; exit 1 ;;
+            *)   echo "Unexpected response ($status) from merges API." >&2; exit 1 ;;
+          esac
