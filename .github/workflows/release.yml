@@ -2,13 +2,11 @@ name: Release
 
 # Manual "ship it" signal. CI (ci.yml) stays the per-PR/per-push correctness gate;
 # this workflow is triggered by hand from the Actions tab when you want to release.
+#
+# The version is NOT entered here — package.json is the single source of truth. Bump it
+# in a normal reviewed PR (`npm version <x.y.z> --no-git-tag-version`), then dispatch this.
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version tag to release, e.g. v0.2.0. Leave blank to deploy without tagging.'
-        required: false
-        type: string
 
 # Least privilege by default; each job widens only what it needs.
 permissions:
@@ -59,11 +57,12 @@ jobs:
       - id: deployment
         uses: actions/deploy-pages@v4
 
-  # Only when a version was supplied: tag the released commit and cut a GitHub Release.
+  # Tag the released commit and cut a GitHub Release. The version comes from package.json
+  # (the source of truth), so the tag can never drift from the declared version. Idempotent:
+  # re-dispatching against an existing version skips cleanly instead of erroring.
   tag-and-release:
     name: Tag & GitHub Release
     needs: deploy
-    if: ${{ inputs.version != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -73,9 +72,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ inputs.version }}" \
+          VER="v$(node -p "require('./package.json').version")"
+          if ! [[ "$VER" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "package.json version '$VER' is not a valid release tag (vX.Y.Z)." >&2
+            exit 1
+          fi
+          if gh release view "$VER" >/dev/null 2>&1; then
+            echo "Release $VER already exists — skipping. Bump package.json to cut a new one."
+            exit 0
+          fi
+          gh release create "$VER" \
             --target "${{ github.sha }}" \
-            --title "${{ inputs.version }}" \
+            --title "$VER" \
             --generate-notes
 
   # Promote the released state to production by merging develop into main directly.
@@ -92,16 +100,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          VERSION: ${{ inputs.version }}
         run: |
-          if [ -n "$VERSION" ]; then
-            msg="Release $VERSION: merge develop into main"
-          else
-            msg="Release: merge develop into main"
-          fi
+          VERSION="v$(node -p "require('./package.json').version")"
           status=$(gh api -X POST "repos/$REPO/merges" \
             -f base=main -f head=develop \
-            -f commit_message="$msg" \
+            -f commit_message="Release $VERSION: merge develop into main" \
             --silent -w '%{http_code}' -o /dev/null 2>/dev/null) || true
 
           case "$status" in
