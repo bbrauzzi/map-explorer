@@ -33,14 +33,21 @@ interface Props {
 
 type Corner = { lng: number; lat: number }
 
-// In dev, route creodias quicklook URLs through the Vite /thumb proxy so the
-// WebGL texture loads same-origin (no CORS / redirect quirks). In prod the
-// final image response is CORS `*`, so we load it directly.
+// Quicklook URLs point at datahub.creodias.eu, which 301-redirects to the same
+// path on zipper.creodias.eu. The redirect response carries no CORS header, so a
+// cross-origin WebGL texture fetch fails on the redirect hop even though the final
+// zipper response is CORS `*`. In dev we proxy via /thumb (followRedirects); in prod
+// we rewrite straight to zipper to skip the redirect.
 function thumbForMap(href: string): string {
-  if (!import.meta.env.DEV) return href
   try {
     const u = new URL(href, window.location.origin)
-    if (u.hostname.endsWith('creodias.eu')) return `/thumb${u.pathname}${u.search}`
+    if (u.hostname.endsWith('creodias.eu')) {
+      if (import.meta.env.DEV) return `/thumb${u.pathname}${u.search}`
+      if (u.hostname === 'datahub.creodias.eu') {
+        u.hostname = 'zipper.creodias.eu'
+        return u.toString()
+      }
+    }
     return href
   } catch {
     return href
