@@ -102,10 +102,12 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           VERSION="v$(node -p "require('./package.json').version")"
+
           status=$(gh api -X POST "repos/$REPO/merges" \
-            -f base=main -f head=develop \
+            -f base=main \
+            -f head=develop \
             -f commit_message="Release $VERSION: merge develop into main" \
-            --silent -w '%{http_code}' -o /dev/null 2>/dev/null) || true
+            --include 2>&1 | grep -m1 '^HTTP/' | awk '{print $2}') || true
 
           case "$status" in
             201) echo "Merged develop into main." ;;
