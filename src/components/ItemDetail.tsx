@@ -21,6 +21,32 @@ export function itemDatetime(item: StacItem): string {
   )
 }
 
+/** The item's acquisition time as epoch ms, or null if unparseable. */
+export function itemTime(item: StacItem): number | null {
+  const raw = (item.properties.datetime as string) || (item.properties['start_datetime'] as string)
+  if (!raw) return null
+  const t = Date.parse(raw)
+  return Number.isNaN(t) ? null : t
+}
+
+/**
+ * GeoTIFF/COG assets that can be tiled client-side by the cog:// protocol.
+ * Filters to http(s) assets whose type looks like a (Cloud-Optimized) GeoTIFF or
+ * whose roles mark them as renderable imagery. Excludes s3://-style hrefs the
+ * browser can't fetch.
+ */
+export function cogAssets(item: StacItem): { key: string; href: string; title: string }[] {
+  return Object.entries(item.assets || {})
+    .filter(([, a]) => {
+      if (!a.href || !/^https?:/i.test(a.href)) return false
+      const type = (a.type || '').toLowerCase()
+      const isTiff = /tiff?|geotiff|cog/.test(type)
+      const renderableRole = a.roles?.some((r) => ['visual', 'data', 'overview'].includes(r))
+      return isTiff || (renderableRole && /tif/i.test(a.href))
+    })
+    .map(([key, a]) => ({ key, href: a.href, title: a.title || key }))
+}
+
 interface Props {
   item: StacItem
   onClose: () => void

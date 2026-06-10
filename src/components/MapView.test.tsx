@@ -43,6 +43,11 @@ vi.mock('react-map-gl/maplibre', async () => {
   return { default: Map, Source, Layer }
 })
 
+// The real maplibre-gl touches WebGL / web workers at import time (and
+// URL.createObjectURL, which jsdom lacks). MapView only needs addProtocol.
+vi.mock('maplibre-gl', () => ({ default: { addProtocol: vi.fn() } }))
+vi.mock('@geomatico/maplibre-cog-protocol', () => ({ cogProtocol: vi.fn() }))
+
 // Imported after the mock is registered (vi.mock is hoisted regardless).
 import MapView from './MapView'
 import type { StacItem, BBox } from '../types/stac'
@@ -289,6 +294,32 @@ describe('MapView bbox preview source', () => {
   it('renders no preview when there is no bbox and not drawing', () => {
     renderMapView()
     expect(geojson('source-bbox').features).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Base-map switcher + timeline
+// ---------------------------------------------------------------------------
+describe('MapView base map + timeline', () => {
+  it('renders the base-map switcher with the available styles', () => {
+    renderMapView()
+    expect(screen.getByLabelText('Base')).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Streets' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Satellite' })).toBeInTheDocument()
+  })
+
+  it('toggles the timeline control and filters footprints by acquisition date', () => {
+    // opticalItem @ 2024-01-01, sarItem @ 2024-01-02 -> two distinct stops.
+    renderMapView()
+    fireEvent.click(screen.getByRole('button', { name: /Timeline off/i }))
+
+    // The slider appears and starts with all items visible.
+    expect(screen.getByRole('slider')).toBeInTheDocument()
+    expect(geojson('source-footprints').features).toHaveLength(2)
+
+    // Stepping back to the earliest stop leaves only the earliest item.
+    fireEvent.click(screen.getByRole('button', { name: '◀' }))
+    expect(geojson('source-footprints').features).toHaveLength(1)
   })
 })
 
