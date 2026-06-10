@@ -6,6 +6,11 @@ export const STAC_BASE_URL = import.meta.env.DEV
   ? '/stac/v1'
   : 'https://stac.dataspace.copernicus.eu/v1'
 
+// The real, absolute STAC endpoint. Used for generated code snippets (copy as
+// code), which must be runnable outside the app — the dev proxy path (/stac/v1)
+// would not resolve elsewhere.
+export const STAC_PUBLIC_URL = 'https://stac.dataspace.copernicus.eu/v1'
+
 // Number of results requested per page from the API.
 export const PAGE_LIMIT = 50
 

@@ -16,6 +16,8 @@ interface Props {
   onLoadMore: () => void
   onClose: () => void
   onClearSelection: () => void
+  onShowCode: () => void
+  canShowCode: boolean
 }
 
 function ResultRow({
@@ -98,6 +100,8 @@ export default function ResultList({
   onLoadMore,
   onClose,
   onClearSelection,
+  onShowCode,
+  canShowCode,
 }: Props) {
   return (
     <>
@@ -129,6 +133,13 @@ export default function ResultList({
             onClick={() => exportCSV(items)}
           >
             CSV
+          </button>
+          <button
+            disabled={!canShowCode}
+            title="Reproduce this search as Python / curl code"
+            onClick={onShowCode}
+          >
+            {'</>'}
           </button>
           <button title="Close panel" onClick={onClose}>
             »

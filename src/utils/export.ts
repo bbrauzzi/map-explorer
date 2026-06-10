@@ -1,6 +1,6 @@
 import type { StacItem } from '../types/stac'
 
-function triggerDownload(content: string, filename: string, mime: string) {
+export function triggerDownload(content: string, filename: string, mime: string) {
   const blob = new Blob([content], { type: mime })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -12,7 +12,7 @@ function triggerDownload(content: string, filename: string, mime: string) {
   URL.revokeObjectURL(url)
 }
 
-function stamp(): string {
+export function stamp(): string {
   // YYYYMMDD-HHMMSS
   return new Date().toISOString().replace(/[:T]/g, '-').replace(/\..+/, '')
 }
