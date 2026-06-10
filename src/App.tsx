@@ -3,6 +3,7 @@ import FilterPanel, { EMPTY_FORM, type FilterForm } from './components/FilterPan
 import MapView from './components/MapView'
 import ResultList from './components/ResultList'
 import ItemDetail from './components/ItemDetail'
+import CodeModal from './components/CodeModal'
 import { useCollections } from './hooks/useCollections'
 import { useStacSearch } from './hooks/useStacSearch'
 import { useSavedSearches } from './hooks/useSavedSearches'
@@ -47,6 +48,7 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [detailItem, setDetailItem] = useState<StacItem | null>(null)
+  const [codeOpen, setCodeOpen] = useState(false)
   const [drawing, setDrawing] = useState(false)
 
   // Collapsible side panels.
@@ -168,10 +170,13 @@ export default function App() {
           onLoadMore={stac.loadMore}
           onClose={() => setResultsOpen(false)}
           onClearSelection={clearSelection}
+          onShowCode={() => setCodeOpen(true)}
+          canShowCode={stac.lastParams != null}
         />
       </div>
 
       {detailItem && <ItemDetail item={detailItem} onClose={() => setDetailItem(null)} />}
+      {codeOpen && <CodeModal params={stac.lastParams} onClose={() => setCodeOpen(false)} />}
     </div>
   )
 }

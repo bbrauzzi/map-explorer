@@ -1,23 +1,68 @@
-import { useCallback, useMemo, useState } from 'react'
-import Map, { Layer, Source, type MapLayerMouseEvent } from 'react-map-gl/maplibre'
-import type { StyleSpecification } from 'maplibre-gl'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import Map, { Layer, Source, type ErrorEvent, type MapLayerMouseEvent } from 'react-map-gl/maplibre'
+import maplibregl, { type StyleSpecification } from 'maplibre-gl'
+import { cogProtocol } from '@geomatico/maplibre-cog-protocol'
 import type { BBox, StacItem } from '../types/stac'
 import { bboxToPolygon, cornersToBBox, overlayCoordinates, type ImageCorners } from '../utils/bbox'
-import { thumbnailHref } from './ItemDetail'
+import { cogAssets, thumbnailHref } from './ItemDetail'
+import TimeSlider from './TimeSlider'
 
-// Base raster map style (OSM), no token or paid services required.
-const BASE_STYLE: StyleSpecification = {
-  version: 8,
-  sources: {
-    osm: {
-      type: 'raster',
-      tiles: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
-    },
-  },
-  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+// Register the cog:// protocol once so raster sources can stream Cloud-Optimized
+// GeoTIFFs client-side (geotiff.js). Guarded for HMR / repeated imports.
+let cogRegistered = false
+if (!cogRegistered) {
+  cogRegistered = true
+  try {
+    maplibregl.addProtocol('cog', cogProtocol)
+  } catch {
+    /* already registered */
+  }
 }
+
+// Builds a single-raster map style (no token or paid services required).
+function rasterStyle(id: string, tiles: string[], attribution: string): StyleSpecification {
+  return {
+    version: 8,
+    sources: { [id]: { type: 'raster', tiles, tileSize: 256, attribution } },
+    layers: [{ id, type: 'raster', source: id }],
+  }
+}
+
+// Selectable base maps, all key-free.
+const BASE_MAPS: { key: string; label: string; style: StyleSpecification }[] = [
+  {
+    key: 'streets',
+    label: 'Streets',
+    style: rasterStyle('osm', ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'], '© OpenStreetMap contributors'),
+  },
+  {
+    key: 'satellite',
+    label: 'Satellite',
+    style: rasterStyle(
+      'esri',
+      ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+      'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics',
+    ),
+  },
+  {
+    key: 'light',
+    label: 'Light',
+    style: rasterStyle(
+      'carto-light',
+      ['a', 'b', 'c'].map((s) => `https://${s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png`),
+      '© OpenStreetMap contributors © CARTO',
+    ),
+  },
+  {
+    key: 'dark',
+    label: 'Dark',
+    style: rasterStyle(
+      'carto-dark',
+      ['a', 'b', 'c'].map((s) => `https://${s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png`),
+      '© OpenStreetMap contributors © CARTO',
+    ),
+  },
+]
 
 interface Props {
   items: StacItem[]
@@ -80,11 +125,66 @@ export default function MapView({
   // Whether to overlay the selected items' quicklooks on the map.
   const [showImagery, setShowImagery] = useState(true)
 
+  // Selected base map.
+  const [baseMapKey, setBaseMapKey] = useState(BASE_MAPS[0].key)
+  const baseStyle = useMemo(
+    () => (BASE_MAPS.find((b) => b.key === baseMapKey) ?? BASE_MAPS[0]).style,
+    [baseMapKey],
+  )
+
+  // Timeline animation: when on, footprints/overlays are restricted to the ids
+  // acquired up to the current slider position (owned by TimeSlider).
+  const [timeline, setTimeline] = useState(false)
+  const [timeWindowIds, setTimeWindowIds] = useState<Set<string> | null>(null)
+  useEffect(() => {
+    if (!timeline) setTimeWindowIds(null)
+  }, [timeline])
+
+  // Items visible given the (optional) time window.
+  const visibleItems = useMemo(
+    () => (timeline && timeWindowIds ? items.filter((it) => timeWindowIds.has(it.id)) : items),
+    [items, timeline, timeWindowIds],
+  )
+
+  // Full-res COG overlay: only offered when exactly one item is selected.
+  const singleSelectedId = selectedIds.size === 1 ? [...selectedIds][0] : null
+  const singleSelected = useMemo(
+    () => (singleSelectedId ? items.find((it) => it.id === singleSelectedId) : undefined),
+    [singleSelectedId, items],
+  )
+  const cogs = useMemo(() => (singleSelected ? cogAssets(singleSelected) : []), [singleSelected])
+  const [cogAssetKey, setCogAssetKey] = useState<string | null>(null)
+  const [cogError, setCogError] = useState(false)
+  // Reset the COG choice when the selection changes or imagery is toggled off.
+  useEffect(() => {
+    setCogAssetKey(null)
+    setCogError(false)
+  }, [singleSelectedId, showImagery])
+
+  const activeCogHref = useMemo(() => {
+    if (!showImagery || !cogAssetKey || cogError) return null
+    return cogs.find((c) => c.key === cogAssetKey)?.href ?? null
+  }, [showImagery, cogAssetKey, cogError, cogs])
+
+  const handleMapError = useCallback(
+    (e: ErrorEvent) => {
+      if (!activeCogHref) return
+      const srcId = (e as unknown as { sourceId?: string }).sourceId
+      const msg = e.error?.message ?? ''
+      // The cog:// load failed (commonly auth/CORS) — fall back to the quicklook.
+      if (srcId === 'cog-overlay' || /cog:|geotiff|tiff/i.test(msg) || msg.includes(activeCogHref)) {
+        setCogError(true)
+        setCogAssetKey(null)
+      }
+    },
+    [activeCogHref],
+  )
+
   // Georeferenced quicklook overlays, one per selected item (with a thumbnail
-  // and a usable footprint/bbox).
+  // and a usable footprint/bbox). Suppressed while a COG overlay is active.
   const overlays = useMemo(() => {
-    if (!showImagery || selectedIds.size === 0) return []
-    return items
+    if (!showImagery || selectedIds.size === 0 || activeCogHref) return []
+    return visibleItems
       .filter((it) => selectedIds.has(it.id))
       .map((it) => {
         const href = thumbnailHref(it)
@@ -93,13 +193,13 @@ export default function MapView({
         return { id: it.id, url: thumbForMap(href), coordinates: coords }
       })
       .filter(Boolean) as { id: string; url: string; coordinates: ImageCorners }[]
-  }, [showImagery, selectedIds, items])
+  }, [showImagery, selectedIds, visibleItems, activeCogHref])
 
   // FeatureCollection of the result footprints.
   const footprints = useMemo(
     () => ({
       type: 'FeatureCollection' as const,
-      features: items
+      features: visibleItems
         .filter((it) => it.geometry)
         .map((it) => ({
           type: 'Feature' as const,
@@ -108,7 +208,7 @@ export default function MapView({
           geometry: it.geometry as GeoJSON.Geometry,
         })),
     }),
-    [items, selectedIds, hoveredId],
+    [visibleItems, selectedIds, hoveredId],
   )
 
   // Bbox preview: either confirmed or while drawing.
@@ -184,19 +284,68 @@ export default function MapView({
             >
               🛰 Imagery {showImagery ? 'on' : 'off'}
             </button>
+            <button
+              className={timeline ? 'border-accent text-accent' : ''}
+              title="Animate the results over their acquisition dates"
+              onClick={() => setTimeline((v) => !v)}
+            >
+              ⏱ Timeline {timeline ? 'on' : 'off'}
+            </button>
+            {showImagery && cogs.length > 0 && (
+              <select
+                title="Render a full-resolution COG asset (best-effort) instead of the quicklook"
+                value={cogAssetKey ?? ''}
+                onChange={(e) => {
+                  setCogError(false)
+                  setCogAssetKey(e.target.value || null)
+                }}
+              >
+                <option value="">Preview (quicklook)</option>
+                {cogs.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.title}
+                  </option>
+                ))}
+              </select>
+            )}
+            {cogError && (
+              <span className="text-[#d29922]">
+                Couldn't load full-res COG (likely auth/CORS); showing preview.
+              </span>
+            )}
           </>
         )}
       </div>
 
+      <div className="absolute top-[10px] right-[10px] z-[5] flex items-center gap-2 rounded-md border border-border bg-bg/85 px-2.5 py-1.5 text-xs">
+        <label htmlFor="basemap">Base</label>
+        <select id="basemap" value={baseMapKey} onChange={(e) => setBaseMapKey(e.target.value)}>
+          {BASE_MAPS.map((b) => (
+            <option key={b.key} value={b.key}>
+              {b.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {timeline && <TimeSlider items={items} onWindowChange={setTimeWindowIds} />}
+
       <Map
         initialViewState={{ longitude: 12.5, latitude: 42, zoom: 4 }}
-        mapStyle={BASE_STYLE}
+        mapStyle={baseStyle}
         style={{ width: '100%', height: '100%' }}
         interactiveLayerIds={drawing ? [] : ['footprints-fill']}
         cursor={drawing ? 'crosshair' : undefined}
         onClick={handleClick}
         onMouseMove={handleMouseMove}
+        onError={handleMapError}
       >
+        {activeCogHref && (
+          <Source id="cog-overlay" type="raster" url={`cog://${activeCogHref}`} tileSize={256}>
+            <Layer id="cog-overlay-layer" type="raster" paint={{ 'raster-opacity': 1 }} />
+          </Source>
+        )}
+
         {overlays.map((ov) => (
           <Source key={ov.id} id={`quicklook-${ov.id}`} type="image" url={ov.url} coordinates={ov.coordinates}>
             <Layer id={`quicklook-layer-${ov.id}`} type="raster" paint={{ 'raster-opacity': 0.95 }} />
